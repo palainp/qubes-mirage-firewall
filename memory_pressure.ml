@@ -45,9 +45,13 @@ let status () =
   let stats = OS.Memory.quick_stat () in
   if fraction_free stats > 0.1 then `Ok
   else (
-    Gc.full_major ();
     let stats = OS.Memory.stat () in
-    report_mem_usage stats;
-    if fraction_free stats < 0.1 then `Memory_critical
-    else `Ok
+    if fraction_free stats > 0.1 then `Ok
+    else (
+      Gc.full_major ();
+      let stats = OS.Memory.stat () in
+      report_mem_usage stats;
+      if fraction_free stats < 0.1 then `Memory_critical
+      else `Ok
+    )
   )
