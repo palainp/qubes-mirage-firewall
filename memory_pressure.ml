@@ -46,8 +46,10 @@ let status () =
   if fraction_free stats > 0.1 then `Ok
   else (
     let stats = OS.Memory.stat () in
-    if fraction_free stats > 0.1 then `Ok
-    else (
+    if fraction_free stats > 0.1 then (
+      Log.info (fun f -> f "quick_stat reported low memory but stat doesn't");
+      `Ok
+    ) else (
       Gc.full_major ();
       let stats = OS.Memory.stat () in
       report_mem_usage stats;
