@@ -66,7 +66,14 @@ module Main (R : Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_tim
     My_nat.create ~max_entries >>= fun nat ->
 
     (* Read network configuration from QubesDB *)
-    Dao.read_network_config qubesDB >>= fun config ->
+    let config = match Dao.read_network_config qubesDB with
+    | None ->
+        let uplink_netvm_ip = Ipaddr.V4.of_string_exn (Key_gen.ipv4_gw ()) in
+        let uplink_our_ip = Ipaddr.V4.of_string_exn (Key_gen.ipv4 ()) in
+        let dns = Ipaddr.V4.of_string_exn (Key_gen.ipv4_dns ()) in
+        Dao.fallback_option_network_config uplink_our_ip uplink_netvm_ip dns
+    | Some config -> config
+    in
 
     Uplink.connect config >>= fun uplink ->
     (* Set up client-side networking *)

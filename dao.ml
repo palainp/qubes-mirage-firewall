@@ -150,12 +150,26 @@ let try_read_network_config db =
                Ipaddr.V4.pp dns);
   { uplink_netvm_ip; uplink_our_ip; clients_our_ip ; dns }
 
+let fallback_option_network_config uplink_our_ip uplink_netvm_ip dns =
+  let clients_our_ip = uplink_our_ip in
+  Log.info (fun f -> f "@[<v2>Got network configuration from Command line:@,\
+                        NetVM IP on uplink network: %a@,\
+                        Our IP on uplink network:   %a@,\
+                        Our IP on client networks:  %a@,\
+                        DNS resolver:               %a@]"
+               Ipaddr.V4.pp uplink_netvm_ip
+               Ipaddr.V4.pp uplink_our_ip
+               Ipaddr.V4.pp clients_our_ip
+               Ipaddr.V4.pp dns);
+  { uplink_netvm_ip; uplink_our_ip; clients_our_ip ; dns }
+
 let read_network_config qubesDB =
-  let rec aux bindings =
-    try Lwt.return (try_read_network_config bindings)
+  let aux bindings =
+    try Some (try_read_network_config bindings)
     with Missing_key key ->
-      Log.warn (fun f -> f "QubesDB key %S not (yet) present; waiting for QubesDB to change..." key);
-      DB.after qubesDB bindings >>= aux
+      Log.warn (fun f -> f "QubesDB key %S not (yet) present; falling back to command line..." key);
+      (* DB.after qubesDB bindings >>= aux *)
+      None
   in
   aux (DB.bindings qubesDB)
 

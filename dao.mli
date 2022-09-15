@@ -23,13 +23,13 @@ type network_config = {
   uplink_netvm_ip : Ipaddr.V4.t;      (* The IP address of NetVM (our gateway) *)
   uplink_our_ip : Ipaddr.V4.t;        (* The IP address of our interface to NetVM *)
 
-  clients_our_ip : Ipaddr.V4.t;        (* The IP address of our interface to our client VMs (their gateway) *)
+  clients_our_ip : Ipaddr.V4.t;       (* The IP address of our interface to our client VMs (their gateway) *)
   dns : Ipaddr.V4.t;
 }
 
-val read_network_config : Qubes.DB.t -> network_config Lwt.t
-(** [read_network_config db] fetches the configuration from QubesDB.
-    If it isn't there yet, it waits until it is. *)
+val read_network_config : Qubes.DB.t -> network_config option
+(** [read_network_config db] fetches the configuration from QubesDB if available. *)
+val fallback_option_network_config : Ipaddr.V4.t -> Ipaddr.V4.t -> Ipaddr.V4.t -> network_config
 
 val db_root : Ipaddr.V4.t -> string
 (** Returns the root path of the firewall rules in the QubesDB for a given IP address. *)
