@@ -8,11 +8,11 @@ open Fw_utils
 type t = {
   client_eth : Client_eth.t;
   nat : My_nat.t;
-  uplink : interface;
+  mutable uplink : interface;
 }
 
 let create ~client_eth ~uplink ~nat =
-  { client_eth; nat; uplink }
+  ref { client_eth; nat; uplink }
 
 let target t buf =
   let dst_ip = buf.Ipv4_packet.dst in
@@ -22,6 +22,9 @@ let target t buf =
 
 let add_client t = Client_eth.add_client t.client_eth
 let remove_client t = Client_eth.remove_client t.client_eth
+
+let update_uplink t uplink =
+  !t.uplink <- uplink
 
 let classify t ip =
   if ip = Ipaddr.V4 t.uplink#my_ip then `Firewall

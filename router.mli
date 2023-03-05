@@ -8,14 +8,14 @@ open Fw_utils
 type t = private {
   client_eth : Client_eth.t;
   nat : My_nat.t;
-  uplink : interface;
+  mutable uplink : interface;
 }
 
 val create :
   client_eth:Client_eth.t ->
   uplink:interface ->
   nat:My_nat.t ->
-  t
+  t ref
 (** [create ~client_eth ~uplink ~nat] is a new routing table
     that routes packets outside of [client_eth] via [uplink]. *)
 
@@ -26,6 +26,8 @@ val add_client : t -> client_link -> unit Lwt.t
 (** [add_client t iface] adds a rule for routing packets addressed to [iface]. *)
 
 val remove_client : t -> client_link -> unit
+
+val update_uplink : t ref -> interface -> unit
 
 val classify : t -> Ipaddr.t -> Packet.host
 val resolve : t -> Packet.host -> Ipaddr.t

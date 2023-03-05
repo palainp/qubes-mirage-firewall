@@ -159,7 +159,7 @@ let listen get_ts dns_client dns_servers qubesDB router =
     (* Check for added clients *)
     new_set |> Dao.VifMap.iter (fun key ip_addr ->
       if not (Dao.VifMap.mem key !clients) then (
-        let cleanup = add_client get_ts dns_client dns_servers ~router key ip_addr qubesDB in
+        let cleanup = add_client get_ts dns_client dns_servers ~router:!router key ip_addr qubesDB in
         Log.debug (fun f -> f "client %a arrived" Dao.ClientVif.pp key);
         clients := !clients |> Dao.VifMap.add key cleanup
       )

@@ -14,8 +14,13 @@ module Make (R: Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_time
   val interface : t -> interface
   (** The network interface to NetVM. *)
 
-  val listen : t -> (unit -> int64) -> (Udp_packet.t * Cstruct.t) Lwt_mvar.t -> Router.t -> unit Lwt.t
+  val net : t -> Netif.t
+  (** The network interface to NetVM. *)
+
+  val listen : t -> (unit -> int64) -> (Udp_packet.t * Cstruct.t) Lwt_mvar.t -> Router.t ref -> unit Lwt.t
   (** Handle incoming frames from NetVM. *)
 
   val send_dns_client_query: t -> src_port:int-> dst:Ipaddr.V4.t -> dst_port:int -> Cstruct.t -> (unit, [`Msg of string]) result Lwt.t
+
+  val watch_uplink_update: t -> Qubes.DB.t -> Router.t ref -> unit Lwt.t
 end

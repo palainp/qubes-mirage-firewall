@@ -19,7 +19,8 @@ module Main (R : Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_tim
     (* Handle packets from both networks *)
     Lwt.choose [
       Client_net.listen Clock.elapsed_ns dns_client dns_servers qubesDB router;
-      Uplink.listen uplink Clock.elapsed_ns dns_responses router
+      Uplink.listen uplink Clock.elapsed_ns dns_responses router ;
+      Uplink.watch_uplink_update uplink qubesDB router ;
     ]
 
   (* Main unikernel entry point (called from auto-generated main.ml). *)
@@ -64,7 +65,7 @@ module Main (R : Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_tim
     let send_dns_query = Uplink.send_dns_client_query uplink in
     let dns_mvar = Lwt_mvar.create_empty () in
     let nameservers = `Udp, [ config.Dao.dns, 53 ; config.Dao.dns2, 53 ] in
-    let dns_client = Dns_client.create ~nameservers (router, send_dns_query, dns_mvar) in
+    let dns_client = Dns_client.create ~nameservers (!router, send_dns_query, dns_mvar) in
 
     let dns_servers = [ config.Dao.dns ; config.Dao.dns2 ] in
     let net_listener = network (Dns_client.getaddrinfo dns_client Dns.Rr_map.A) dns_mvar dns_servers uplink qubesDB router in

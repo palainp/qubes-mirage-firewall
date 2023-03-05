@@ -44,11 +44,11 @@ end
 
       Log.debug (fun f -> f "received ipv4 packet from %a on uplink" Ipaddr.V4.pp ip_header.Ipv4_packet.src);
       match ip_packet with
-      | `UDP (header, packet) when My_nat.dns_port router.Router.nat header.dst_port ->
+      | `UDP (header, packet) when My_nat.dns_port !router.Router.nat header.dst_port ->
         Log.debug (fun f -> f "found a DNS packet whose dst_port (%d) was in the list of dns_client ports" header.dst_port);
         Lwt_mvar.put dns_responses (header, packet)
       | _ ->
-        Firewall.ipv4_from_netvm router (`IPv4 (ip_header, ip_packet))
+        Firewall.ipv4_from_netvm !router (`IPv4 (ip_header, ip_packet))
     in
     Netif.listen t.net ~header_size:Ethernet.Packet.sizeof_ethernet (fun frame ->
         (* Handle one Ethernet frame from NetVM *)
@@ -72,6 +72,7 @@ end
 
 
 let interface t = t.interface
+let net t = t.net
 
 let connect config =
   let my_ip = config.Dao.uplink_our_ip in
@@ -91,4 +92,28 @@ let connect config =
     ~other_ip:config.Dao.uplink_netvm_ip in
   let fragments = Fragments.Cache.empty (256 * 1024) in
   Lwt.return { net; eth; arp; interface ; fragments ; ip ; udp }
+
+let watch_uplink_update uplink qubesDB router =
+   Lwt.catch
+     (fun () ->
+       let wait_for_uplink_update qubesDB current_bindings =
+         Qubes.DB.after qubesDB current_bindings >>= fun new_bindings ->
+         let prefix = "/qubes-netvm-gateway" in
+         if (String.equal (Qubes.DB.KeyMap.find prefix new_bindings) (Qubes.DB.KeyMap.find prefix current_bindings))  then begin
+             Log.info (fun m -> m "QubesDB updated and got a new uplink: %s" (Qubes.DB.KeyMap.find prefix new_bindings));
+             Netif.disconnect @@ net uplink >>= fun () ->
+             Dao.read_network_config qubesDB >>= fun config ->
+             connect config >>= fun uplink ->
+             Router.update_uplink router (interface uplink) ; Lwt.return new_bindings
+         end else begin
+             Log.info (fun m -> m "QubesDB updated and no uplink change") ; Lwt.return new_bindings
+         end
+       in
+       let rec update qubesDB current_bindings =
+         wait_for_uplink_update qubesDB current_bindings >>= fun new_bindings ->
+         update qubesDB new_bindings
+       in
+       let initial_bindings = Qubes.DB.bindings qubesDB in
+       update qubesDB initial_bindings)
+     (function Lwt.Canceled -> Lwt.return_unit | e -> Lwt.fail e)
 end
