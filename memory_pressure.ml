@@ -27,6 +27,21 @@ let meminfo stats =
                   SwapTotal: 0 kB\n\
                   SwapFree: 0 kB\n" (mem_total / 1024) (mem_free / 1024)
 
+let print_mem_usage =
+  let rec aux () =
+    let stats = Xen_os.Memory.quick_stat () in
+    let { Xen_os.Memory.free_words; heap_words; _ } = stats in
+    let mem_total = heap_words * wordsize_in_bytes in
+    let mem_free = free_words * wordsize_in_bytes in
+    Log.info (fun f -> f "Memory usage: free %a / %a (%.2f %%)"
+      Fmt.bi_byte_size mem_free
+      Fmt.bi_byte_size mem_total
+      (fraction_free stats *. 100.0));
+    Xen_os.Time.sleep_ns (Duration.of_f 10.0) >>= fun () ->
+    aux ()
+  in
+  aux ()
+
 let report_mem_usage stats =
   Lwt.async (fun () ->
     let open Xen_os in
@@ -37,19 +52,20 @@ let report_mem_usage stats =
   )
 
 let init () =
+  Gc.set {(Gc.get ()) with
+    Gc.max_overhead = 0
+    (* Gc.custom_major_ratio = 70 ; *)
+    (* Gc.custom_minor_ratio = 20 ; *)
+    (* Gc.custom_minor_max_size = 2048 *)
+  } ;
   Gc.full_major ();
   let stats = Xen_os.Memory.quick_stat () in
   report_mem_usage stats
 
 let status () =
   let stats = Xen_os.Memory.quick_stat () in
-  if fraction_free stats > 0.5 then `Ok
-  else (
-    Gc.full_major ();
-    Xen_os.Memory.trim ();
-    let stats = Xen_os.Memory.quick_stat () in
-    if fraction_free stats < 0.6 then begin
-      report_mem_usage stats;
-      `Memory_critical
-    end else `Ok
-  )
+  let { Xen_os.Memory.free_words; _ } = stats in
+  let min_free_words = 6*1024*1024 / wordsize_in_bytes in
+  (* if more than min_free MB of free memory *)
+  if free_words < min_free_words then Gc.full_major () ;
+  `Ok
