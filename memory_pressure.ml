@@ -52,11 +52,17 @@ let report_mem_usage stats =
   )
 
 let init () =
+  (* This is a specially adapted GC configuration for this unikernel task.
+     It uses a lot of bigarrays (Cstruct: packets given by mirage-net-xen).
+   *)
   Gc.set {(Gc.get ()) with
-    Gc.max_overhead = 0
+    Gc.allocation_policy = 0 ; (* next-fit allocation, will fragment => compact with major *)
+    Gc.space_overhead = 80 ; (* see https://v2.ocaml.org/api/Gc.html *)
+    Gc.max_overhead = 0 ; (* do a compaction at end of each major collection *)
+    Gc.major_heap_increment = 65536 ; (* incr heap size (asked to Solo5) by 512kB (=64k words of 8B) *)
     (* Gc.custom_major_ratio = 70 ; *)
-    (* Gc.custom_minor_ratio = 20 ; *)
-    (* Gc.custom_minor_max_size = 2048 *)
+    Gc.custom_minor_ratio = 44 ; (* trigger minor when 44% of the memory is "bigarray-like" *)
+    (* Gc.custom_minor_max_size = 2048 ; *)
   } ;
   Gc.full_major ();
   let stats = Xen_os.Memory.quick_stat () in
@@ -65,7 +71,7 @@ let init () =
 let status () =
   let stats = Xen_os.Memory.quick_stat () in
   let { Xen_os.Memory.free_words; _ } = stats in
-  let min_free_words = 6*1024*1024 / wordsize_in_bytes in
+  let min_free_words = 8*1024*1024 / wordsize_in_bytes in
   (* if more than min_free MB of free memory *)
   if free_words < min_free_words then Gc.full_major () ;
   `Ok
