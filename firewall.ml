@@ -84,9 +84,11 @@ let apply_rules t (rules : ('a, 'b) Packet.t -> Packet.action Lwt.t) ~dst (annot
       Lwt.return_unit
 
 let ipv4_from_client resolver dns_servers t ~src packet =
+(*
   match Memory_pressure.status () with
   | `Memory_critical -> Lwt.return_unit
   | `Ok ->
+*)
   (* Check for existing NAT entry for this packet *)
     match translate t packet with
     | Some frame -> forward_ipv4 t frame  (* Some existing connection or redirect *)
@@ -99,9 +101,11 @@ let ipv4_from_client resolver dns_servers t ~src packet =
       | Some firewall_packet -> apply_rules t (Rules.from_client resolver dns_servers) ~dst firewall_packet
 
 let ipv4_from_netvm t packet =
+(*
   match Memory_pressure.status () with
   | `Memory_critical -> Lwt.return_unit
   | `Ok ->
+*)
     let `IPv4 (ip, _transport) = packet in
     let src = Router.classify t (Ipaddr.V4 ip.Ipv4_packet.src) in
     let dst = Router.classify t (Ipaddr.V4 ip.Ipv4_packet.dst) in
