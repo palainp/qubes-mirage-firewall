@@ -12,23 +12,25 @@ let fraction_free stats =
   let { Xen_os.Memory.free_words; heap_words; _ } = stats in
   float free_words /. float heap_words
 
-let meminfo stats =
-  let { Xen_os.Memory.free_words; heap_words; _ } = stats in
-  let mem_total = heap_words * wordsize_in_bytes in
-  let mem_free = free_words * wordsize_in_bytes in
-  Log.info (fun f -> f "Writing meminfo: free %a / %a (%.2f %%)"
-    Fmt.bi_byte_size mem_free
-    Fmt.bi_byte_size mem_total
-    (fraction_free stats *. 100.0));
-  Printf.sprintf "MemTotal: %d kB\n\
-                  MemFree: %d kB\n\
-                  Buffers: 0 kB\n\
-                  Cached: 0 kB\n\
-                  SwapTotal: 0 kB\n\
-                  SwapFree: 0 kB\n" (mem_total / 1024) (mem_free / 1024)
-
 let init () =
-  Gc.full_major ()
+  Gc.full_major ();
+  (* Report we are using all out memory available to be kept away from memory ballooning *)
+  Lwt.async (fun () ->
+    let open Xen_os in
+    Xs.make () >>= fun xs ->
+    Xs.immediate xs (fun h ->
+      Xs.read h "memory/static-max" >>= fun mem ->
+      (* Silently drop the EACCESS exception as the key is absent if we're out of ballooning *)
+      Lwt.catch
+        (fun () ->
+          Xs.write h "memory/meminfo" mem
+        )
+        (function
+          | Xs_protocol.Error _ -> Lwt.return_unit
+          | ex -> fail ex
+        )
+    )
+  )
 
 let status () =
   let stats = Xen_os.Memory.quick_stat () in
