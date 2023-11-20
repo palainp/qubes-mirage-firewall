@@ -5,17 +5,16 @@
 
 open Mirage
 
-let table_size =
-  let info = Key.Arg.info
-      ~doc:"The number of NAT entries to allocate."
-      ~docv:"ENTRIES" ["nat-table-size"]
-  in
-  let key = Key.Arg.opt ~stage:`Both Key.Arg.int 5_000 info in
-  Key.create "nat_table_size" key
+
+  let table_size =
+    let doc = Cmdliner.Arg.info
+        ~doc:"The number of NAT entries to allocate."
+        ~docv:"ENTRIES" ["nat-table-size"]
+    in
+    Key.(create "nat-table-size" Arg.(opt Cmdliner.Arg.int 5_000 doc))
 
 let main =
   foreign
-    ~keys:[Key.v table_size]
     ~packages:[
       package "vchan" ~min:"4.0.2";
       package "cstruct";

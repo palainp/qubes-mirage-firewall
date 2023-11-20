@@ -7,6 +7,18 @@ open Qubes
 let src = Logs.Src.create "unikernel" ~doc:"Main unikernel code"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+module K = struct
+  open Cmdliner
+
+  let nat_table_size =
+    let doc = Arg.info
+        ~doc:"The number of NAT entries to allocate."
+        ~docv:"ENTRIES" ["nat-table-size"]
+    in
+    Arg.(value & opt Arg.int 5_000 doc) |> Mirage_runtime.key
+end
+
+
 module Main (R : Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_time.S) = struct
   module Uplink = Uplink.Make(R)(Clock)(Time)
   module Dns_transport = My_dns.Transport(R)(Clock)(Time)
@@ -44,7 +56,7 @@ module Main (R : Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_tim
       Xen_os.Lifecycle.await_shutdown_request () >>= fun (`Poweroff | `Reboot) ->
       Lwt.return_unit in
     (* Set up networking *)
-    let max_entries = Key_gen.nat_table_size () in
+    let max_entries = K.nat_table_size () in
     let nat = My_nat.create ~max_entries in
 
     (* Read network configuration from QubesDB *)
