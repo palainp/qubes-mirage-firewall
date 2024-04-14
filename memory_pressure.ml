@@ -37,6 +37,6 @@ let status () =
     Gc.full_major ();
     Xen_os.Memory.trim ();
     let stats = Xen_os.Memory.quick_stat () in
-    if fraction_free stats < 0.6 then `Memory_critical
+    if fraction_free stats < 0.6 then (Log.info (fun f -> f "low memory"); `Memory_critical)
     else `Ok
   )

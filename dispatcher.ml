@@ -168,8 +168,8 @@ struct
     Lwt.catch
     (fun () ->
       match target t ip with
-      | Some iface -> transmit_ipv4 packet iface
-      | None -> Lwt.return_unit)
+      | Some iface ->         Log.info (fun f -> f "transmit %a -> %a" Ipaddr.V4.pp (ip.Ipv4_packet.src) Ipaddr.V4.pp (ip.Ipv4_packet.dst)); transmit_ipv4 packet iface
+      | None ->         Log.info (fun f -> f "interface not found for %a" Ipaddr.V4.pp (ip.Ipv4_packet.dst)); Lwt.return_unit)
     (fun ex ->
       let dst_ip = ip.Ipv4_packet.dst in
       Log.warn (fun f ->
@@ -245,6 +245,7 @@ struct
     | `Memory_critical -> Lwt.return_unit
     | `Ok -> (
         let (`IPv4 (ip, _transport)) = packet in
+        Log.info (fun f -> f "packet from netvm %a -> %a" Ipaddr.V4.pp (ip.Ipv4_packet.src) Ipaddr.V4.pp (ip.Ipv4_packet.dst));
         let src = classify t (Ipaddr.V4 ip.Ipv4_packet.src) in
         let dst = classify t (Ipaddr.V4 ip.Ipv4_packet.dst) in
         match Packet.of_mirage_nat_packet ~src ~dst packet with
@@ -269,6 +270,8 @@ struct
     match Memory_pressure.status () with
     | `Memory_critical -> Lwt.return_unit
     | `Ok -> (
+        let (`IPv4 (ip, _transport)) = packet in
+        Log.info (fun f -> f "packet from client %a -> %a" Ipaddr.V4.pp (ip.Ipv4_packet.src) Ipaddr.V4.pp (ip.Ipv4_packet.dst));
         (* Check for existing NAT entry for this packet *)
         match translate t packet with
         | Some frame ->
