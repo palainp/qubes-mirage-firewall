@@ -290,7 +290,7 @@ struct
                     apply_rules t
                       (Rules.from_client resolver dns_servers)
                       ~dst firewall_packet)
-            | `NetVM -> ipv4_from_netvm t packet
+            | `NetVM -> ipv4_from_netvm t packet (* This is a packet created by our netvm for another client... Strange?*)
             | `External _ ->
                 Log.warn (fun f ->
                     f "Frame from Inside has external source IP address! %a"
