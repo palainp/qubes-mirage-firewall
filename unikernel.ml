@@ -28,7 +28,7 @@ let ipv4_dns2 =
   let doc = Arg.info ~doc:"Manual Second DNS IP setting." [ "ipv4-dns2" ] in
   Arg.(value & opt string "10.139.1.2" doc)
 
-module Main (R : Mirage_random.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_time.S) = struct
+module Main (R : Mirage_crypto_rng_mirage.S)(Clock : Mirage_clock.MCLOCK)(Time : Mirage_time.S) = struct
   module Dispatcher = Dispatcher.Make(R)(Clock)(Time)
   module Dns_transport = My_dns.Transport(R)(Clock)(Time)
   module Dns_client = Dns_client.Make(Dns_transport)

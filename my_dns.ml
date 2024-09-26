@@ -1,6 +1,6 @@
 open Lwt.Infix
 
-module Transport (R : Mirage_random.S) (C : Mirage_clock.MCLOCK) (Time : Mirage_time.S) = struct
+module Transport (R : Mirage_crypto_rng_mirage.S) (C : Mirage_clock.MCLOCK) (Time : Mirage_time.S) = struct
   type +'a io = 'a Lwt.t
   type io_addr = Ipaddr.V4.t * int
   module Dispatcher = Dispatcher.Make(R)(C)(Time)
@@ -48,18 +48,18 @@ module Transport (R : Mirage_random.S) (C : Mirage_clock.MCLOCK) (Time : Mirage_
 
   let connect (t : t) = Lwt.return (Ok (t.protocol, t))
 
-  let send_recv (ctx : context) buf : (Cstruct.t, [> `Msg of string ]) result Lwt.t =
+  let send_recv (ctx : context) (buf : string) : (string, [> `Msg of string ]) result Lwt.t =
     let dst, dst_port = ctx.nameserver in
     let router, send_udp, _ = ctx.stack in
     let src_port, evict =
       My_nat.free_udp_port router.nat ~src:router.config.our_ip ~dst ~dst_port:53
     in
-    let id = Cstruct.BE.get_uint16 buf 0 in
+    let id = String.get_uint16_be buf 0 in
     with_timeout ctx.timeout_ns
       (let cond = Lwt_condition.create () in
        ctx.requests <- IM.add id cond ctx.requests;
-       (send_udp ~src_port ~dst ~dst_port buf >|= Rresult.R.open_error_msg) >>= function
-       | Ok () -> Lwt_condition.wait cond >|= fun dns_response -> Ok dns_response
+       (send_udp ~src_port ~dst ~dst_port (Cstruct.of_string buf) >|= Rresult.R.open_error_msg) >>= function
+       | Ok () -> Lwt_condition.wait cond >|= fun dns_response -> Ok (Cstruct.to_string dns_response)
        | Error _ as e -> Lwt.return e) >|= fun result ->
     ctx.requests <- IM.remove id ctx.requests;
     evict ();

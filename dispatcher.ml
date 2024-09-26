@@ -9,7 +9,7 @@ let src = Logs.Src.create "dispatcher" ~doc:"Networking dispatch"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 module Make
-    (R : Mirage_random.S)
+    (R : Mirage_crypto_rng_mirage.S)
     (Clock : Mirage_clock.MCLOCK)
     (Time : Mirage_time.S) =
 struct
