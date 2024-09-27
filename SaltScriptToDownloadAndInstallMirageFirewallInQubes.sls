@@ -38,13 +38,10 @@ download-and-unpack-in-DownloadVM4mirage:
     - require: 
       - create-downloader-VM
 
-
 check-checksum-in-DownloadVM:
   cmd.run: 
     - names:
-      - qvm-run --pass-io {{ DownloadVM }} {{ "\"echo \\\"Checksum of last build on github:\\\";curl -s https://raw.githubusercontent.com/mirage/qubes-mirage-firewall/main/build-with.sh  | grep \\\"SHA2 last known:\\\" | cut -d\' \' -f5 | tr -d \\\\\\\"\"" }}
-      - qvm-run --pass-io {{ DownloadVM }} {{ "\"echo \\\"Checksum of downloaded local file:\\\";sha256sum ~/mirage-firewall/vmlinuz | cut -d\' \' -f1\"" }}
-      - qvm-run --pass-io {{ DownloadVM }} {{ "\"diff <(curl -s https://raw.githubusercontent.com/mirage/qubes-mirage-firewall/main/build-with.sh  | grep \\\"SHA2 last known:\\\" | cut -d\' \' -f5 | tr -d \\\\\\\") <(sha256sum ~/mirage-firewall/vmlinuz | cut -d\' \' -f1) && echo \\\"Checksums DO match.\\\" || (echo \\\"Checksums do NOT match.\\\";exit 101)\"" }} #~/mirage-firewall/modules.img
+      - qvm-run --pass-io {{ DownloadVM }} {{ "\"diff vmlinuz.sha256 <(sha256sum mirage-firewall/vmlinuz) && echo \\\"Checksums DO match.\\\" || (echo \\\"Checksums do NOT match.\\\";exit 101)\"" }}
     - require: 
       - download-and-unpack-in-DownloadVM4mirage
 
@@ -90,7 +87,7 @@ create-sys-mirage-fw:
 cleanup-in-DownloadVM:
   cmd.run:
    - names:
-      - qvm-run -a --pass-io --no-gui {{ DownloadVM }} "{{ "rm " ~ Filename ~ "; rm -R ~/mirage-firewall" }}"
+      - qvm-run -a --pass-io --no-gui {{ DownloadVM }} "{{ "rm " ~ Filename ~ " " ~ Sha256File ~ "; rm -R ~/mirage-firewall" }}"
    - require: 
      - create-initramfs
 
