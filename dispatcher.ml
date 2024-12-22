@@ -17,6 +17,8 @@ struct
   module I = Static_ipv4.Make (R) (Clock) (UplinkEth) (Arp)
   module U = Udp.Make (I) (R)
 
+  let clients : Cleanup.t Dao.VifMap.t ref = ref Dao.VifMap.empty in
+
   class client_iface eth ~domid ~gateway_ip ~client_ip client_mac : client_link
     =
     let log_header = Fmt.str "dom%d:%a" domid Ipaddr.V4.pp client_ip in
@@ -427,7 +429,6 @@ struct
 
   (** Watch XenStore for notifications of new clients. *)
   let wait_clients get_ts dns_client dns_servers qubesDB router =
-    let clients : Cleanup.t Dao.VifMap.t ref = ref Dao.VifMap.empty in
     Dao.watch_clients @@ fun new_set ->
     (* Check for removed clients *)
     let clean_up_clients key cleanup =
