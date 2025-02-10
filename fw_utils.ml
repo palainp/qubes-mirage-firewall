@@ -20,10 +20,6 @@ class type client_link = object
   method set_rules: string Qubes.DB.KeyMap.t -> unit
 end
 
-(** An Ethernet header from [src]'s MAC address to [dst]'s with an IPv4 payload. *)
-let eth_header ethertype ~src ~dst =
-  Ethernet.Packet.make_cstruct { Ethernet.Packet.source = src; destination = dst; ethertype }
-
 let error fmt =
   let err s = Failure s in
   Printf.ksprintf err fmt

@@ -19,10 +19,6 @@ type ('src, 'dst) t = {
   dst : 'dst;
 }
 
-val pp_transport_header : Format.formatter -> transport_header -> unit
-
-val pp_host : Format.formatter -> host -> unit
-
 val to_mirage_nat_packet : ('a, 'b) t -> Nat_packet.t
 
 val of_mirage_nat_packet : src:'a -> dst:'b -> Nat_packet.t -> ('a, 'b) t option

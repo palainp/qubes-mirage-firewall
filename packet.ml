@@ -19,17 +19,6 @@ type ('src, 'dst) t = {
   src : 'src;
   dst : 'dst;
 }
-let pp_transport_header f = function
-  | `ICMP h -> Icmpv4_packet.pp f h
-  | `TCP h -> Tcp.Tcp_packet.pp f h
-  | `UDP h -> Udp_packet.pp f h
-
-let pp_host fmt = function
-  | `Client c -> Ipaddr.V4.pp fmt (c#other_ip)
-  | `Unknown_client ip -> Format.fprintf fmt "unknown-client(%a)" Ipaddr.pp ip
-  | `NetVM -> Format.pp_print_string fmt "net-vm"
-  | `External ip -> Format.fprintf fmt "external(%a)" Ipaddr.pp ip
-  | `Firewall -> Format.pp_print_string fmt "firewall(client-gw)"
 
 let to_mirage_nat_packet t : Nat_packet.t =
   match t.transport_header with
