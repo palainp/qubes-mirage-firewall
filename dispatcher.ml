@@ -8,14 +8,9 @@ let src = Logs.Src.create "dispatcher" ~doc:"Networking dispatch"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-module Make
-    (R : Mirage_crypto_rng_mirage.S)
-    (Clock : Mirage_clock.MCLOCK)
-    (Time : Mirage_time.S) =
-struct
-  module Arp = Arp.Make (UplinkEth) (Time)
-  module I = Static_ipv4.Make (R) (Clock) (UplinkEth) (Arp)
-  module U = Udp.Make (I) (R)
+  module Arp = Arp.Make (UplinkEth)
+  module I = Static_ipv4.Make (UplinkEth) (Arp)
+  module U = Udp.Make (I)
 
   class client_iface eth ~domid ~gateway_ip ~client_ip client_mac : client_link
     =
@@ -571,13 +566,14 @@ struct
     I.connect ~cidr ~gateway eth arp >>= fun ip ->
     U.connect ip >>= fun udp ->
     let netvm_mac =
+      let default_netvm_mac = "fe:ff:ff:ff:ff:ff" in
       Arp.query arp gateway >>= function
         | Error e ->
-          Log.err(fun f -> f "Getting MAC of our NetVM: %a" Arp.pp_error e);
+          Log.err(fun f -> f "Getting MAC of our NetVM: %a, use default value %s" Arp.pp_error e default_netvm_mac);
           (* This mac address is a special address used by Qubes when the device
              is not managed by Qubes itself. This can occurs inside a service
              AppVM (e.g. VPN) when the service creates a new interface. *)
-          Lwt.return (Macaddr.of_string_exn "fe:ff:ff:ff:ff:ff")
+          Lwt.return (Macaddr.of_string_exn default_netvm_mac)
         | Ok mac -> Lwt.return mac
     in
     let interface =
@@ -632,4 +628,3 @@ struct
       >>= fun () -> aux new_db
     in
     aux Qubes.DB.KeyMap.empty
-end

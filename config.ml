@@ -1,4 +1,4 @@
-(* mirage >= 4.8.0 & < 4.9.0 *)
+(* mirage >= 4.9.0 & < 4.10.0 *)
 (* Copyright (C) 2017, Thomas Leonard <thomas.leonard@unikernel.com>
    See the README file for details. *)
 
@@ -17,14 +17,14 @@ let main =
       package "shared-memory-ring" ~min:"3.0.0";
       package "mirage-net-xen" ~min:"2.1.4";
       package "ipaddr" ~min:"5.2.0";
-      package "mirage-qubes" ~min:"0.9.1";
+      package "mirage-qubes" ~min:"0.11.0";
       package ~min:"3.0.1" "mirage-nat";
       package "mirage-logs";
       package "mirage-xen" ~min:"8.0.0";
       package ~min:"6.4.0" "dns-client";
       package "pf-qubes";
     ]
-    "Unikernel.Main" (random @-> mclock @-> time @-> job)
+    "Unikernel" job
 
 let () =
-  register "qubes-firewall" [main $ default_random $ default_monotonic_clock $ default_time]
+  register "qubes-firewall" [ main ]
