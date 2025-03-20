@@ -16,12 +16,20 @@ let nat_table_size =
   Mirage_runtime.register_arg Arg.(value & opt int 5_000 doc)
 
 let ipv4 =
-  let doc = Arg.info ~doc:"Manual IP setting." [ "ipv4" ] in
+  let doc = Arg.info ~doc:"Manual IPv4 setting." [ "ipv4" ] in
   Mirage_runtime.register_arg Arg.(value & opt string "0.0.0.0" doc)
 
+let ipv6 =
+  let doc = Arg.info ~doc:"Manual IPv6 setting." [ "ipv6" ] in
+  Mirage_runtime.register_arg Arg.(value & opt string "::" doc)
+
 let ipv4_gw =
-  let doc = Arg.info ~doc:"Manual Gateway IP setting." [ "ipv4-gw" ] in
+  let doc = Arg.info ~doc:"Manual Gateway IPv4 setting." [ "ipv4-gw" ] in
   Mirage_runtime.register_arg Arg.(value & opt string "0.0.0.0" doc)
+
+let ipv6_gw =
+  let doc = Arg.info ~doc:"Manual Gateway IPv6 setting." [ "ipv6-gw" ] in
+  Mirage_runtime.register_arg Arg.(value & opt string "::" doc)
 
 let ipv4_dns =
   let doc = Arg.info ~doc:"Manual DNS IP setting." [ "ipv4-dns" ] in
@@ -69,28 +77,30 @@ let start () =
   (* Set up networking *)
   let nat = My_nat.create ~max_entries:(nat_table_size ()) in
 
-  let netvm_ip = Ipaddr.V4.of_string_exn (ipv4_gw ()) in
-  let our_ip = Ipaddr.V4.of_string_exn (ipv4 ()) in
+  let netvm_ipv4 = Ipaddr.V4.of_string_exn (ipv4_gw ()) in
+  let our_ipv4 = Ipaddr.V4.of_string_exn (ipv4 ()) in
+  let netvm_ipv6 = Ipaddr.V6.of_string_exn (ipv6_gw ()) in
+  let our_ipv6 = Ipaddr.V6.of_string_exn (ipv6 ()) in
   let dns = Ipaddr.V4.of_string_exn (ipv4_dns ()) in
   let dns2 = Ipaddr.V4.of_string_exn (ipv4_dns2 ()) in
 
-  let zero_ip = Ipaddr.V4.any in
-
   let network_config =
-    if netvm_ip = zero_ip && our_ip = zero_ip then (
+    if netvm_ipv4 = Ipaddr.V4.any && our_ipv4 = Ipaddr.V4.any then (
       (* Read network configuration from QubesDB *)
       Dao.read_network_config qubesDB
       >>= fun config ->
-      if config.netvm_ip = zero_ip || config.our_ip = zero_ip then
+      let (netvm_ipv4, _) = config.netvm_ip in
+      let (our_ipv4, _) = config.our_ip in
+      if netvm_ipv4 = Ipaddr.V4.any || our_ipv4 = Ipaddr.V4.any then
         Log.info (fun f ->
             f
               "We currently have no netvm nor command line for setting it up, \
                aborting...");
-      assert (config.netvm_ip <> zero_ip && config.our_ip <> zero_ip);
+      assert (netvm_ipv4 <> Ipaddr.V4.any && our_ipv4 <> Ipaddr.V4.any);
       Lwt.return config)
     else
       let config : Dao.network_config =
-        { from_cmdline = true; netvm_ip; our_ip; dns; dns2 }
+        { from_cmdline = true; netvm_ip = (netvm_ipv4, netvm_ipv6); our_ip = (our_ipv4, our_ipv6); dns; dns2 }
       in
       Lwt.return config
   in

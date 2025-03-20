@@ -61,7 +61,8 @@ let send_recv (ctx : context) buf : (string, [> `Msg of string ]) result Lwt.t =
   let dst, dst_port = ctx.nameserver in
   let router, send_udp, _ = ctx.stack in
   let src_port, evict =
-    My_nat.free_udp_port router.nat ~src:router.config.our_ip ~dst ~dst_port:53
+    let (out_ipv4, _) = router.config.our_ip in
+    My_nat.free_udp_port router.nat ~src:out_ipv4 ~dst ~dst_port:53
   in
   let id = String.get_uint16_be buf 0 in
   with_timeout ctx.timeout_ns

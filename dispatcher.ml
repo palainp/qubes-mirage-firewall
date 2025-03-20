@@ -104,7 +104,8 @@ let target t buf =
       (* if dest is not a client, transfer it to our uplink *)
       match t.uplink with
       | None -> (
-          match Client_eth.lookup t.clients t.config.netvm_ip with
+          let (netvm_ipv4, _) = t.config.netvm_ip in
+          match Client_eth.lookup t.clients netvm_ipv4 with
           | Some uplink -> Some (uplink :> interface)
           | None ->
               Log.err (fun f ->
@@ -112,7 +113,7 @@ let target t buf =
                     "We have a command line configuration %a but it's \
                      currently not connected to us (please check its netvm \
                      property)...%!"
-                    Ipaddr.V4.pp t.config.netvm_ip);
+                    Ipaddr.V4.pp netvm_ipv4);
               None)
       | Some uplink -> Some uplink.interface)
 
@@ -120,13 +121,19 @@ let add_client t = Client_eth.add_client t.clients
 let remove_client t = Client_eth.remove_client t.clients
 
 let classify t ip =
-  if ip = Ipaddr.V4 t.config.our_ip then `Firewall
-  else if ip = Ipaddr.V4 t.config.netvm_ip then `NetVM
+  let (our_ipv4, _) = t.config.our_ip in
+  let (netvm_ipv4, _) = t.config.netvm_ip in
+  if ip = Ipaddr.V4 our_ipv4 then `Firewall
+  else if ip = Ipaddr.V4 netvm_ipv4 then `NetVM
   else (Client_eth.classify t.clients ip :> Packet.host)
 
 let resolve t = function
-  | `Firewall -> Ipaddr.V4 t.config.our_ip
-  | `NetVM -> Ipaddr.V4 t.config.netvm_ip
+  | `Firewall ->
+    let (our_ipv4, _) = t.config.our_ip in
+    Ipaddr.V4 our_ipv4
+  | `NetVM ->
+    let (netvm_ipv4, _) = t.config.netvm_ip in
+    Ipaddr.V4 netvm_ipv4
   | #Client_eth.host as host -> Client_eth.resolve t.clients host
 
 (* Transmission *)
@@ -179,7 +186,7 @@ let translate t packet = My_nat.translate t.nat packet
 
 (* Add a NAT rule for the endpoints in this frame, via a random port on the firewall. *)
 let add_nat_and_forward_ipv4 t packet =
-  let xl_host = t.config.our_ip in
+  let (xl_host, _) = t.config.our_ip in
   match My_nat.add_nat_rule_and_translate t.nat ~xl_host `NAT packet with
   | Ok packet -> forward_ipv4 t packet
   | Error e ->
@@ -194,7 +201,7 @@ let nat_to t ~host ~port packet =
       Log.warn (fun f -> f "Cannot NAT with IPv6");
       Lwt.return_unit
   | Ipaddr.V4 target -> (
-      let xl_host = t.config.our_ip in
+      let (xl_host, _) = t.config.our_ip in
       match
         My_nat.add_nat_rule_and_translate t.nat ~xl_host
           (`Redirect (target, port))
@@ -217,7 +224,8 @@ let apply_rules t (rules : ('a, 'b) Packet.t -> Packet.action Lwt.t) ~dst
       match t.uplink with
       | Some uplink -> transmit_ipv4 packet uplink.interface
       | None -> (
-          match Client_eth.lookup t.clients t.config.netvm_ip with
+          let (netvm_ipv4, _) = t.config.netvm_ip in
+          match Client_eth.lookup t.clients netvm_ipv4 with
           | Some iface -> transmit_ipv4 packet iface
           | None ->
               Log.warn (fun f ->
@@ -326,9 +334,10 @@ let client_handle_ipv4 get_ts cache ~iface ~router dns_client dns_servers packet
   | Ok (Some packet) ->
       let (`IPv4 (ip, _)) = packet in
       let src = ip.Ipv4_packet.src in
+      let (netvm_ipv4, _) = router.config.netvm_ip in
       if src = iface#other_ip then
         ipv4_from_client dns_client dns_servers router ~src:iface packet
-      else if iface#other_ip = router.config.netvm_ip then
+      else if iface#other_ip = netvm_ipv4 then
         (* This can occurs when used with *BSD as netvm (and a gateway is set) *)
         ipv4_from_netvm router packet
       else (
@@ -562,8 +571,8 @@ let rec uplink_listen get_ts dns_responses router =
 
 (** Connect to our uplink backend (we must have an uplink here...). *)
 let connect config =
-  let my_ip = config.Dao.our_ip in
-  let gateway = config.Dao.netvm_ip in
+  let (my_ip, _) = config.Dao.our_ip in
+  let (gateway, _) = config.Dao.netvm_ip in
   Netif.connect "0" >>= fun net ->
   UplinkEth.connect net >>= fun eth ->
   Arp.connect eth >>= fun arp ->
@@ -582,7 +591,8 @@ let connect config =
     | Ok mac -> Lwt.return mac
   in
   let interface =
-    new netvm_iface eth netvm_mac ~my_ip ~other_ip:config.Dao.netvm_ip
+    let (gateway, _) = config.Dao.netvm_ip in
+    new netvm_iface eth netvm_mac ~my_ip ~other_ip:gateway
   in
   let fragments = Fragments.Cache.empty (256 * 1024) in
   Lwt.return { net; eth; arp; interface; fragments; ip; udp }

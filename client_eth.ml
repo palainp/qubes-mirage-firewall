@@ -12,7 +12,7 @@ module Log = (val Logs.src_log src : Logs.LOG)
 type t = {
   mutable iface_of_ip : client_link Ipaddr.V4.Map.t;
   changed : unit Lwt_condition.t; (* Fires when [iface_of_ip] changes. *)
-  my_ip : Ipaddr.V4.t;
+  my_ip : Ipaddr.V4.t * Ipaddr.V6.t;
       (* The IP that clients are given as their default gateway. *)
 }
 
@@ -23,7 +23,9 @@ let create config =
   let my_ip = config.Dao.our_ip in
   Lwt.return { iface_of_ip = Ipaddr.V4.Map.empty; my_ip; changed }
 
-let client_gw t = t.my_ip
+let client_gw t =
+  let (my_ipv4, _) = t.my_ip in
+  my_ipv4
 
 let add_client t iface =
   let ip = iface#other_ip in
@@ -56,7 +58,8 @@ let classify t ip =
   match ip with
   | Ipaddr.V6 _ -> `External ip
   | Ipaddr.V4 ip4 -> (
-      if ip4 = t.my_ip then `Firewall
+      let (my_ipv4, _) = t.my_ip in
+      if ip4 = my_ipv4 then `Firewall
       else
         match lookup t ip4 with
         | Some client_link -> `Client client_link
@@ -64,20 +67,23 @@ let classify t ip =
 
 let resolve t : host -> Ipaddr.t = function
   | `Client client_link -> Ipaddr.V4 client_link#other_ip
-  | `Firewall -> Ipaddr.V4 t.my_ip
+  | `Firewall ->
+    let (my_ipv4, _) = t.my_ip in
+    Ipaddr.V4 my_ipv4
   | `External addr -> addr
 
 module ARP = struct
   type arp = { net : t; client_link : client_link }
 
-  let lookup t ip =
-    if ip = t.net.my_ip then Some t.client_link#my_mac
-    else if (Ipaddr.V4.to_octets ip).[3] = '\x01' then (
+  let lookup t ipv4 =
+    let (my_ipv4, _) = t.net.my_ip in
+    if ipv4 = my_ipv4 then Some t.client_link#my_mac
+    else if (Ipaddr.V4.to_octets ipv4).[3] = '\x01' then (
       Log.info (fun f ->
           f ~header:t.client_link#log_header
             "Request for %a is invalid, but pretending it's me (see Qubes \
              issue #5022)"
-            Ipaddr.V4.pp ip);
+            Ipaddr.V4.pp ipv4);
       Some t.client_link#my_mac)
     else None
   (* We're now treating client networks as point-to-point links,
