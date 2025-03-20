@@ -12,15 +12,17 @@ module I = Static_ipv4.Make (UplinkEth) (Arp)
 module U = Udp.Make (I)
 
 class client_iface eth ~domid ~gateway_ip ~client_ip client_mac : client_link =
-  let log_header = Fmt.str "dom%d:%a" domid Ipaddr.V4.pp client_ip in
+  let log_header = Fmt.str "dom%d:%a/%a" domid Ipaddr.V4.pp (v4 client_ip) Ipaddr.V6.pp (v6 client_ip)  in
   object
     val mutable rules = []
     method get_rules = rules
-    method set_rules new_db = rules <- Dao.read_rules new_db client_ip
+    method set_rules new_db = rules <- Dao.read_rules new_db (v4 client_ip)
     method my_mac = ClientEth.mac eth
     method other_mac = client_mac
-    method my_ip = gateway_ip
-    method other_ip = client_ip
+    method my_ipv4 = v4 gateway_ip
+    method other_ipv4 = v4 client_ip
+    method my_ipv6 = v6 gateway_ip
+    method other_ipv6 = v6 client_ip
 
     method writev proto fillfn =
       Lwt.catch
@@ -44,8 +46,10 @@ class client_iface eth ~domid ~gateway_ip ~client_ip client_mac : client_link =
 class netvm_iface eth mac ~my_ip ~other_ip : interface =
   object
     method my_mac = UplinkEth.mac eth
-    method my_ip = my_ip
-    method other_ip = other_ip
+    method my_ipv4 = v4 my_ip
+    method other_ipv4 = v4 other_ip
+    method my_ipv6 = v6 my_ip
+    method other_ipv6 = v6 other_ip
 
     method writev ethertype fillfn =
       Lwt.catch
@@ -104,7 +108,7 @@ let target t buf =
       (* if dest is not a client, transfer it to our uplink *)
       match t.uplink with
       | None -> (
-          let (netvm_ipv4, _) = t.config.netvm_ip in
+          let netvm_ipv4 = v4 t.config.netvm_ip in
           match Client_eth.lookup t.clients netvm_ipv4 with
           | Some uplink -> Some (uplink :> interface)
           | None ->
@@ -121,19 +125,15 @@ let add_client t = Client_eth.add_client t.clients
 let remove_client t = Client_eth.remove_client t.clients
 
 let classify t ip =
-  let (our_ipv4, _) = t.config.our_ip in
-  let (netvm_ipv4, _) = t.config.netvm_ip in
-  if ip = Ipaddr.V4 our_ipv4 then `Firewall
-  else if ip = Ipaddr.V4 netvm_ipv4 then `NetVM
+  if ip = Ipaddr.V4 (v4 t.config.our_ip) then `Firewall
+  else if ip = Ipaddr.V4 (v4 t.config.netvm_ip) then `NetVM
   else (Client_eth.classify t.clients ip :> Packet.host)
 
 let resolve t = function
   | `Firewall ->
-    let (our_ipv4, _) = t.config.our_ip in
-    Ipaddr.V4 our_ipv4
+    Ipaddr.V4 (v4 t.config.our_ip)
   | `NetVM ->
-    let (netvm_ipv4, _) = t.config.netvm_ip in
-    Ipaddr.V4 netvm_ipv4
+    Ipaddr.V4 (v4 t.config.netvm_ip)
   | #Client_eth.host as host -> Client_eth.resolve t.clients host
 
 (* Transmission *)
@@ -147,7 +147,7 @@ let transmit_ipv4 packet iface =
           | Error e ->
               Log.warn (fun f ->
                   f "Failed to write packet to %a: %a" Ipaddr.V4.pp
-                    iface#other_ip Nat_packet.pp_error e);
+                    iface#other_ipv4 Nat_packet.pp_error e);
               0
           | Ok (n, frags) ->
               fragments := frags;
@@ -162,7 +162,7 @@ let transmit_ipv4 packet iface =
         !fragments)
     (fun ex ->
       Log.warn (fun f ->
-          f "Failed to write packet to %a: %s" Ipaddr.V4.pp iface#other_ip
+          f "Failed to write packet to %a: %s" Ipaddr.V4.pp iface#other_ipv4
             (Printexc.to_string ex));
       Lwt.return_unit)
 
@@ -186,8 +186,7 @@ let translate t packet = My_nat.translate t.nat packet
 
 (* Add a NAT rule for the endpoints in this frame, via a random port on the firewall. *)
 let add_nat_and_forward_ipv4 t packet =
-  let (xl_host, _) = t.config.our_ip in
-  match My_nat.add_nat_rule_and_translate t.nat ~xl_host `NAT packet with
+  match My_nat.add_nat_rule_and_translate t.nat ~xl_host:(v4 t.config.our_ip) `NAT packet with
   | Ok packet -> forward_ipv4 t packet
   | Error e ->
       Log.warn (fun f ->
@@ -201,9 +200,8 @@ let nat_to t ~host ~port packet =
       Log.warn (fun f -> f "Cannot NAT with IPv6");
       Lwt.return_unit
   | Ipaddr.V4 target -> (
-      let (xl_host, _) = t.config.our_ip in
       match
-        My_nat.add_nat_rule_and_translate t.nat ~xl_host
+        My_nat.add_nat_rule_and_translate t.nat ~xl_host:(v4 t.config.our_ip)
           (`Redirect (target, port))
           packet
       with
@@ -224,8 +222,7 @@ let apply_rules t (rules : ('a, 'b) Packet.t -> Packet.action Lwt.t) ~dst
       match t.uplink with
       | Some uplink -> transmit_ipv4 packet uplink.interface
       | None -> (
-          let (netvm_ipv4, _) = t.config.netvm_ip in
-          match Client_eth.lookup t.clients netvm_ipv4 with
+          match Client_eth.lookup t.clients (v4 t.config.netvm_ip) with
           | Some iface -> transmit_ipv4 packet iface
           | None ->
               Log.warn (fun f ->
@@ -316,7 +313,7 @@ let client_handle_arp ~fixed_arp ~iface request =
                   Arp_packet.size))
             (fun ex ->
               Log.warn (fun f ->
-                  f "Failed to write APR to %a: %s" Ipaddr.V4.pp iface#other_ip
+                  f "Failed to write APR to %a: %s" Ipaddr.V4.pp iface#other_ipv4
                     (Printexc.to_string ex));
               Lwt.return_unit))
 
@@ -334,16 +331,15 @@ let client_handle_ipv4 get_ts cache ~iface ~router dns_client dns_servers packet
   | Ok (Some packet) ->
       let (`IPv4 (ip, _)) = packet in
       let src = ip.Ipv4_packet.src in
-      let (netvm_ipv4, _) = router.config.netvm_ip in
-      if src = iface#other_ip then
+      if src = iface#other_ipv4 then
         ipv4_from_client dns_client dns_servers router ~src:iface packet
-      else if iface#other_ip = netvm_ipv4 then
+      else if iface#other_ipv4 = v4 router.config.netvm_ip then
         (* This can occurs when used with *BSD as netvm (and a gateway is set) *)
         ipv4_from_netvm router packet
       else (
         Log.warn (fun f ->
             f "Incorrect source IP %a in IP packet from %a (dropping)"
-              Ipaddr.V4.pp src Ipaddr.V4.pp iface#other_ip);
+              Ipaddr.V4.pp src Ipaddr.V4.pp iface#other_ipv4);
         Lwt.return_unit)
 
 (** Connect to a new client's interface and listen for incoming frames and
@@ -352,25 +348,25 @@ let conf_vif get_ts vif backend client_eth dns_client dns_servers ~client_ip
     ~iface ~router ~cleanup_tasks qubesDB () =
   let { Dao.ClientVif.domid; device_id } = vif in
   Log.info (fun f ->
-      f "Client %d:%d (IP: %s) ready" domid device_id
-        (Ipaddr.V4.to_string client_ip));
+      f "Client %d:%d (IP: %a/%a) ready" domid device_id Ipaddr.V4.pp
+      (v4 client_ip) Ipaddr.V6.pp (v6 client_ip));
 
   (* update the rules whenever QubesDB notices a change for this IP *)
   let qubesdb_updater =
     Lwt.catch
       (fun () ->
         let rec update current_db current_rules =
-          Qubes.DB.got_new_commit qubesDB (Dao.db_root client_ip) current_db
+          Qubes.DB.got_new_commit qubesDB (Dao.db_root (v4 client_ip)) current_db
           >>= fun new_db ->
           iface#set_rules new_db;
           let new_rules = iface#get_rules in
           if current_rules = new_rules then
             Log.info (fun m ->
-                m "Rules did not change for %s" (Ipaddr.V4.to_string client_ip))
+                m "Rules did not change for %a/%a" Ipaddr.V4.pp (v4 client_ip) Ipaddr.V6.pp (v6 client_ip))
           else (
             Log.info (fun m ->
-                m "New firewall rules for %s@.%a"
-                  (Ipaddr.V4.to_string client_ip)
+                m "New firewall rules for %a/%a@.%a"
+                  Ipaddr.V4.pp (v4 client_ip) Ipaddr.V6.pp (v6 client_ip)
                   Fmt.(list ~sep:(any "@.") Pf_qubes.Parse_qubes.pp_rule)
                   new_rules);
             (* empty NAT table if rules are updated: they might deny old connections *)
@@ -415,8 +411,8 @@ let add_client get_ts dns_client dns_servers ~router vif client_ip qubesDB =
   let open Lwt.Syntax in
   let cleanup_tasks = Cleanup.create () in
   Log.info (fun f ->
-      f "add client vif %a with IP %a" Dao.ClientVif.pp vif Ipaddr.V4.pp
-        client_ip);
+      f "add client vif %a with IP %a/%a" Dao.ClientVif.pp vif Ipaddr.V4.pp
+        (v4 client_ip) Ipaddr.V6.pp (v6 client_ip));
   let { Dao.ClientVif.domid; device_id } = vif in
   let* backend = Netback.make ~domid ~device_id in
   let* eth = ClientEth.connect backend in
@@ -571,8 +567,8 @@ let rec uplink_listen get_ts dns_responses router =
 
 (** Connect to our uplink backend (we must have an uplink here...). *)
 let connect config =
-  let (my_ip, _) = config.Dao.our_ip in
-  let (gateway, _) = config.Dao.netvm_ip in
+  let my_ip = v4 config.Dao.our_ip in
+  let gateway = v4 config.Dao.netvm_ip in
   Netif.connect "0" >>= fun net ->
   UplinkEth.connect net >>= fun eth ->
   Arp.connect eth >>= fun arp ->
@@ -591,8 +587,7 @@ let connect config =
     | Ok mac -> Lwt.return mac
   in
   let interface =
-    let (gateway, _) = config.Dao.netvm_ip in
-    new netvm_iface eth netvm_mac ~my_ip ~other_ip:gateway
+    new netvm_iface eth netvm_mac ~my_ip:config.Dao.our_ip ~other_ip:config.Dao.netvm_ip
   in
   let fragments = Fragments.Cache.empty (256 * 1024) in
   Lwt.return { net; eth; arp; interface; fragments; ip; udp }
@@ -600,18 +595,22 @@ let connect config =
 (** Wait Xenstore for our uplink changes (we must have an uplink here...). *)
 let uplink_wait_update qubesDB router =
   let rec aux current_db =
-    let netvm = "/qubes-gateway" in
-    Log.info (fun f -> f "Waiting for netvm changes to %S...%!" netvm);
+    let netvmv4 = "/qubes-gateway" in
+    let netvmv6 = "/qubes-gateway6" in
+    Log.info (fun f -> f "Waiting for netvm changes to %S or %S...%!" netvmv4 netvmv6);
     Qubes.DB.after qubesDB current_db >>= fun new_db ->
-    (match (router.uplink, Qubes.DB.KeyMap.find_opt netvm new_db) with
-    | Some uplink, Some netvm
+    (match (router.uplink, Qubes.DB.KeyMap.find_opt netvmv4 new_db, Qubes.DB.KeyMap.find_opt netvmv6 new_db) with
+    | Some uplink, Some netvmv4, Some netvmv6
       when not
-             (String.equal netvm
-                (Ipaddr.V4.to_string uplink.interface#other_ip)) ->
+             (String.equal netvmv4
+                (Ipaddr.V4.to_string uplink.interface#other_ipv4))
+            || not 
+             (String.equal netvmv6
+                (Ipaddr.V6.to_string uplink.interface#other_ipv6)) ->
         Log.info (fun f ->
-            f "Our netvm IP has changed, before it was %s, now it's: %s%!"
-              (Ipaddr.V4.to_string uplink.interface#other_ip)
-              netvm);
+            f "Our netvm IP has changed, before it was %a/%a, now it's: %s/%s%!"
+              Ipaddr.V4.pp uplink.interface#other_ipv4 Ipaddr.V6.pp uplink.interface#other_ipv6
+              netvmv4 netvmv6);
         Lwt_condition.broadcast router.uplink_disconnect ();
         (* wait for uplink disconnexion *)
         Lwt_condition.wait router.uplink_disconnected >>= fun () ->
@@ -621,22 +620,27 @@ let uplink_wait_update qubesDB router =
         update router ~config ~uplink:(Some uplink) >>= fun () ->
         Lwt_condition.broadcast router.uplink_connected ();
         Lwt.return_unit
-    | None, Some _ ->
+    | None, Some _, Some _->
         (* a new interface is attributed to qubes-mirage-firewall *)
-        Log.info (fun f -> f "Going from netvm not connected to %s%!" netvm);
+        Log.info (fun f -> f "Going from netvm not connected to %s/%s%!" netvmv4 netvmv6);
         Dao.read_network_config qubesDB >>= fun config ->
         Dao.print_network_config config;
         connect config >>= fun uplink ->
         update router ~config ~uplink:(Some uplink) >>= fun () ->
         Lwt_condition.broadcast router.uplink_connected ();
         Lwt.return_unit
-    | Some _, None ->
+    | Some _, None, None ->
         (* This currently is never triggered :( *)
         Log.info (fun f ->
             f "TODO: Our netvm disapeared, troubles are coming!%!");
         Lwt.return_unit
-    | Some _, Some _ (* The new netvm IP is unchanged (it's our old netvm IP) *)
-    | None, None ->
+    | _, Some _, None
+    | _, None, Some _ ->
+        Log.info (fun f ->
+            f "QubesDB is inconsistent about the situation of our netvm!%!");
+        Lwt.return_unit
+    | Some _, Some _, Some _ (* The new netvm IP is unchanged (it's our old netvm IP) *)
+    | None, None, None ->
         Log.info (fun f ->
             f "QubesDB has changed but not the situation of our netvm!%!");
         Lwt.return_unit)

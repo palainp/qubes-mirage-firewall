@@ -15,7 +15,7 @@ val free_udp_port :
 
 val dns_port : t -> int -> bool
 val create : max_entries:int -> t
-val remove_connections : t -> Ipaddr.V4.t -> unit
+val remove_connections : t -> Ipaddr.V4.t * Ipaddr.V6.t -> unit
 val translate : t -> Nat_packet.t -> Nat_packet.t option
 
 val add_nat_rule_and_translate :

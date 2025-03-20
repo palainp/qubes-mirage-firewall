@@ -89,8 +89,8 @@ let start () =
       (* Read network configuration from QubesDB *)
       Dao.read_network_config qubesDB
       >>= fun config ->
-      let (netvm_ipv4, _) = config.netvm_ip in
-      let (our_ipv4, _) = config.our_ip in
+      let netvm_ipv4 = Fw_utils.v4 config.netvm_ip in
+      let our_ipv4 = Fw_utils.v4 config.our_ip in
       if netvm_ipv4 = Ipaddr.V4.any || our_ipv4 = Ipaddr.V4.any then
         Log.info (fun f ->
             f

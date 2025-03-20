@@ -7,8 +7,10 @@
 class type interface = object
   method my_mac : Macaddr.t
   method writev : Ethernet.Packet.proto -> (Cstruct.t -> int) -> unit Lwt.t
-  method my_ip : Ipaddr.V4.t
-  method other_ip : Ipaddr.V4.t
+  method my_ipv4 : Ipaddr.V4.t
+  method other_ipv4 : Ipaddr.V4.t
+  method my_ipv6 : Ipaddr.V6.t
+  method other_ipv6 : Ipaddr.V6.t
 end
 
 (** An Ethernet interface connected to a clientVM. *)
@@ -33,3 +35,7 @@ let error fmt =
 let or_raise msg pp = function
   | Ok x -> x
   | Error e -> failwith (Fmt.str "%s: %a" msg pp e)
+
+(* We now use both IPv4 and IPv6 configuration and the type is defined as (v4, v6) *)
+let v4 tupl = fst tupl
+let v6 tupl = snd tupl

@@ -26,7 +26,7 @@ val add_client : t -> client_link -> unit Lwt.t
     that before adding the new client and returning. *)
 
 val remove_client : t -> client_link -> unit
-val client_gw : t -> Ipaddr.V4.t
+val client_gw : t -> Ipaddr.V4.t * Ipaddr.V6.t
 val classify : t -> Ipaddr.t -> host
 val resolve : t -> host -> Ipaddr.t
 

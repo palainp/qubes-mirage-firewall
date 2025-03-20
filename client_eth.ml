@@ -23,12 +23,10 @@ let create config =
   let my_ip = config.Dao.our_ip in
   Lwt.return { iface_of_ip = Ipaddr.V4.Map.empty; my_ip; changed }
 
-let client_gw t =
-  let (my_ipv4, _) = t.my_ip in
-  my_ipv4
+let client_gw t = t.my_ip
 
 let add_client t iface =
-  let ip = iface#other_ip in
+  let ip = iface#other_ipv4 in
   let rec aux () =
     match Ipaddr.V4.Map.find_opt ip t.iface_of_ip with
     | Some old ->
@@ -47,7 +45,7 @@ let add_client t iface =
   aux ()
 
 let remove_client t iface =
-  let ip = iface#other_ip in
+  let ip = iface#other_ipv4 in
   assert (Ipaddr.V4.Map.mem ip t.iface_of_ip);
   t.iface_of_ip <- t.iface_of_ip |> Ipaddr.V4.Map.remove ip;
   Lwt_condition.broadcast t.changed ()
@@ -58,26 +56,23 @@ let classify t ip =
   match ip with
   | Ipaddr.V6 _ -> `External ip
   | Ipaddr.V4 ip4 -> (
-      let (my_ipv4, _) = t.my_ip in
-      if ip4 = my_ipv4 then `Firewall
+      if ip4 = v4 t.my_ip then `Firewall
       else
         match lookup t ip4 with
         | Some client_link -> `Client client_link
         | None -> `External ip)
 
 let resolve t : host -> Ipaddr.t = function
-  | `Client client_link -> Ipaddr.V4 client_link#other_ip
+  | `Client client_link -> Ipaddr.V4 client_link#other_ipv4
   | `Firewall ->
-    let (my_ipv4, _) = t.my_ip in
-    Ipaddr.V4 my_ipv4
+    Ipaddr.V4 (v4 t.my_ip)
   | `External addr -> addr
 
 module ARP = struct
   type arp = { net : t; client_link : client_link }
 
   let lookup t ipv4 =
-    let (my_ipv4, _) = t.net.my_ip in
-    if ipv4 = my_ipv4 then Some t.client_link#my_mac
+    if ipv4 = v4 t.net.my_ip then Some t.client_link#my_mac
     else if (Ipaddr.V4.to_octets ipv4).[3] = '\x01' then (
       Log.info (fun f ->
           f ~header:t.client_link#log_header
@@ -102,7 +97,7 @@ module ARP = struct
       f ~header:t.client_link#log_header ("who-has %a? " ^^ fmt) Ipaddr.V4.pp
         req_ipv4
     in
-    if req_ipv4 = t.client_link#other_ip then (
+    if req_ipv4 = t.client_link#other_ipv4 then (
       Log.info (fun f -> pf f "ignoring request for client's own IP");
       None)
     else

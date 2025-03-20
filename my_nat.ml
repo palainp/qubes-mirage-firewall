@@ -66,7 +66,7 @@ let translate t packet =
       None
   | Ok packet -> Some packet
 
-let remove_connections t ip = ignore (Nat.remove_connections t.table ip)
+let remove_connections t ip = ignore (Nat.remove_connections t.table (Fw_utils.v4 ip))
 
 let add_nat_rule_and_translate t ~xl_host action packet =
   let proto =

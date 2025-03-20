@@ -25,7 +25,7 @@ let pp_transport_header f = function
   | `UDP h -> Udp_packet.pp f h
 
 let pp_host fmt = function
-  | `Client c -> Ipaddr.V4.pp fmt c#other_ip
+  | `Client c -> Ipaddr.V4.pp fmt c#other_ipv4
   | `Unknown_client ip -> Format.fprintf fmt "unknown-client(%a)" Ipaddr.pp ip
   | `NetVM -> Format.pp_print_string fmt "net-vm"
   | `External ip -> Format.fprintf fmt "external(%a)" Ipaddr.pp ip

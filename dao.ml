@@ -94,10 +94,13 @@ let vifs client domid =
                 let* str =
                   Xen_os.Xs.read handle (Fmt.str "%s/%d/ip" path device_id)
                 in
-                let client_ip = List.hd (String.split_on_char ' ' str) in
-                (* NOTE(dinosaure): it's safe to use [List.hd] here,
-               [String.split_on_char] can not return an empty list. *)
-                Lwt.return_some (vif, Ipaddr.V4.of_string_exn client_ip)
+                let client_ips = String.split_on_char ' ' str in
+                (* Here we can have:
+                   - "X.X.X.X"        <- only one IPv4
+                   - "X.X.X.X aa::bb" <- both IPv4 and IPv6
+                   - "aa::bb"         <- only one IPv6 *)
+                let[@warning "-8"] ipv4::ipv6::_ = client_ips in
+                Lwt.return_some (vif, (Ipaddr.V4.of_string_exn ipv4, Ipaddr.V6.of_string_exn ipv6))
               in
               Lwt.catch get_client_ip @@ function
               | Xs_protocol.Enoent _ -> Lwt.return_none
