@@ -99,8 +99,11 @@ let vifs client domid =
                    - "X.X.X.X"        <- only one IPv4
                    - "X.X.X.X aa::bb" <- both IPv4 and IPv6
                    - "aa::bb"         <- only one IPv6 *)
-                let[@warning "-8"] ipv4::ipv6::_ = client_ips in
-                Lwt.return_some (vif, (Ipaddr.V4.of_string_exn ipv4, Ipaddr.V6.of_string_exn ipv6))
+                let[@warning "-8"] (ipv4 :: ipv6 :: _) = client_ips in
+                Lwt.return_some
+                  ( vif,
+                    (Ipaddr.V4.of_string_exn ipv4, Ipaddr.V6.of_string_exn ipv6)
+                  )
               in
               Lwt.catch get_client_ip @@ function
               | Xs_protocol.Enoent _ -> Lwt.return_none
@@ -137,8 +140,10 @@ let watch_clients fn =
 type network_config = {
   from_cmdline : bool;
       (* Specify if we have network configuration from command line or from qubesDB*)
-  netvm_ip : Ipaddr.V4.t * Ipaddr.V6.t; (* The IP address of NetVM (our gateway) *)
-  our_ip : Ipaddr.V4.t * Ipaddr.V6.t; (* The IP address of our interface to NetVM *)
+  netvm_ip : Ipaddr.V4.t * Ipaddr.V6.t;
+      (* The IP address of NetVM (our gateway) *)
+  our_ip : Ipaddr.V4.t * Ipaddr.V6.t;
+      (* The IP address of our interface to NetVM *)
   dns : Ipaddr.V4.t;
   dns2 : Ipaddr.V4.t;
 }
@@ -164,7 +169,13 @@ let try_read_network_config db =
   (* - default gateway IP (only when VM has netvm set); VM should add host route to this address directly via eth0 (or whatever default interface name is) *)
   let dns = get4 "/qubes-primary-dns" in
   let dns2 = get4 "/qubes-secondary-dns" in
-  { from_cmdline = false; netvm_ip = (netvm_ip4, netvm_ip6); our_ip = (our_ip4, our_ip6); dns; dns2 }
+  {
+    from_cmdline = false;
+    netvm_ip = (netvm_ip4, netvm_ip6);
+    our_ip = (our_ip4, our_ip6);
+    dns;
+    dns2;
+  }
 
 let read_network_config qubesDB =
   let rec aux bindings =
@@ -178,8 +189,8 @@ let read_network_config qubesDB =
   aux (DB.bindings qubesDB)
 
 let print_network_config config =
-  let (netvm_ip4, netvm_ip6) = config.netvm_ip in
-  let (our_ip4, our_ip6) = config.our_ip in
+  let netvm_ip4, netvm_ip6 = config.netvm_ip in
+  let our_ip4, our_ip6 = config.our_ip in
   Log.info (fun f ->
       f
         "@[<v2>Current network configuration (QubesDB or command line):@,\
@@ -189,8 +200,7 @@ let print_network_config config =
          Our IPv6 on client networks:  %a@,\
          DNS primary resolver:       %a@,\
          DNS secondary resolver:     %a@]"
-        Ipaddr.V4.pp netvm_ip4 Ipaddr.V6.pp netvm_ip6
-        Ipaddr.V4.pp our_ip4 Ipaddr.V6.pp our_ip6
-        Ipaddr.V4.pp config.dns Ipaddr.V4.pp config.dns2)
+        Ipaddr.V4.pp netvm_ip4 Ipaddr.V6.pp netvm_ip6 Ipaddr.V4.pp our_ip4
+        Ipaddr.V6.pp our_ip6 Ipaddr.V4.pp config.dns Ipaddr.V4.pp config.dns2)
 
 let set_iptables_error db = Qubes.DB.write db "/qubes-iptables-error"

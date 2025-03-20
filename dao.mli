@@ -15,15 +15,18 @@ module VifMap : sig
   val find : key -> 'a t -> 'a option
 end
 
-val watch_clients : ((Ipaddr.V4.t * Ipaddr.V6.t) VifMap.t -> unit Lwt.t) -> 'a Lwt.t
+val watch_clients :
+  ((Ipaddr.V4.t * Ipaddr.V6.t) VifMap.t -> unit Lwt.t) -> 'a Lwt.t
 (** [watch_clients fn] calls [fn clients] with the list of backend clients in
     XenStore, and again each time XenStore updates. *)
 
 type network_config = {
   from_cmdline : bool;
       (* Specify if we have network configuration from command line or from qubesDB*)
-  netvm_ip : Ipaddr.V4.t * Ipaddr.V6.t; (* The IP address of NetVM (our gateway) *)
-  our_ip : Ipaddr.V4.t * Ipaddr.V6.t; (* The IP address of our interface to NetVM *)
+  netvm_ip : Ipaddr.V4.t * Ipaddr.V6.t;
+      (* The IP address of NetVM (our gateway) *)
+  our_ip : Ipaddr.V4.t * Ipaddr.V6.t;
+      (* The IP address of our interface to NetVM *)
   dns : Ipaddr.V4.t;
   dns2 : Ipaddr.V4.t;
 }

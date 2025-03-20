@@ -100,7 +100,13 @@ let start () =
       Lwt.return config)
     else
       let config : Dao.network_config =
-        { from_cmdline = true; netvm_ip = (netvm_ipv4, netvm_ipv6); our_ip = (our_ipv4, our_ipv6); dns; dns2 }
+        {
+          from_cmdline = true;
+          netvm_ip = (netvm_ipv4, netvm_ipv6);
+          our_ip = (our_ipv4, our_ipv6);
+          dns;
+          dns2;
+        }
       in
       Lwt.return config
   in

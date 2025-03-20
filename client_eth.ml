@@ -22,7 +22,13 @@ type host = [ `Client of client_link | `Firewall | `External of Ipaddr.t ]
 let create config =
   let changed = Lwt_condition.create () in
   let my_ip = config.Dao.our_ip in
-  Lwt.return { iface_of_ip4 = Ipaddr.V4.Map.empty; iface_of_ip6 = Ipaddr.V6.Map.empty; my_ip; changed }
+  Lwt.return
+    {
+      iface_of_ip4 = Ipaddr.V4.Map.empty;
+      iface_of_ip6 = Ipaddr.V6.Map.empty;
+      my_ip;
+      changed;
+    }
 
 let client_gw t = t.my_ip
 
@@ -73,8 +79,7 @@ let classify t ip =
 
 let resolve t : host -> Ipaddr.t = function
   | `Client client_link -> Ipaddr.V4 client_link#other_ipv4
-  | `Firewall ->
-    Ipaddr.V4 (v4 t.my_ip)
+  | `Firewall -> Ipaddr.V4 (v4 t.my_ip)
   | `External addr -> addr
 
 module ARP = struct
