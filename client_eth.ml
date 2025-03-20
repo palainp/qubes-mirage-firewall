@@ -10,7 +10,8 @@ let src =
 module Log = (val Logs.src_log src : Logs.LOG)
 
 type t = {
-  mutable iface_of_ip : client_link Ipaddr.V4.Map.t;
+  mutable iface_of_ip4 : client_link Ipaddr.V4.Map.t;
+  mutable iface_of_ip6 : client_link Ipaddr.V6.Map.t;
   changed : unit Lwt_condition.t; (* Fires when [iface_of_ip] changes. *)
   my_ip : Ipaddr.V4.t * Ipaddr.V6.t;
       (* The IP that clients are given as their default gateway. *)
@@ -21,14 +22,14 @@ type host = [ `Client of client_link | `Firewall | `External of Ipaddr.t ]
 let create config =
   let changed = Lwt_condition.create () in
   let my_ip = config.Dao.our_ip in
-  Lwt.return { iface_of_ip = Ipaddr.V4.Map.empty; my_ip; changed }
+  Lwt.return { iface_of_ip4 = Ipaddr.V4.Map.empty; iface_of_ip6 = Ipaddr.V6.Map.empty; my_ip; changed }
 
 let client_gw t = t.my_ip
 
 let add_client t iface =
   let ip = iface#other_ipv4 in
   let rec aux () =
-    match Ipaddr.V4.Map.find_opt ip t.iface_of_ip with
+    match Ipaddr.V4.Map.find_opt ip t.iface_of_ip4 with
     | Some old ->
         (* Wait for old client to disappear before adding one with the same IP address.
          Otherwise, its [remove_client] call will remove the new client instead. *)
@@ -38,7 +39,7 @@ let add_client t iface =
               old#log_header);
         Lwt_condition.wait t.changed >>= aux
     | None ->
-        t.iface_of_ip <- t.iface_of_ip |> Ipaddr.V4.Map.add ip iface;
+        t.iface_of_ip4 <- t.iface_of_ip4 |> Ipaddr.V4.Map.add ip iface;
         Lwt_condition.broadcast t.changed ();
         Lwt.return_unit
   in
@@ -46,19 +47,27 @@ let add_client t iface =
 
 let remove_client t iface =
   let ip = iface#other_ipv4 in
-  assert (Ipaddr.V4.Map.mem ip t.iface_of_ip);
-  t.iface_of_ip <- t.iface_of_ip |> Ipaddr.V4.Map.remove ip;
+  assert (Ipaddr.V4.Map.mem ip t.iface_of_ip4);
+  t.iface_of_ip4 <- t.iface_of_ip4 |> Ipaddr.V4.Map.remove ip;
   Lwt_condition.broadcast t.changed ()
 
-let lookup t ip = Ipaddr.V4.Map.find_opt ip t.iface_of_ip
+let lookup t ip =
+  match ip with
+  | Ipaddr.V4 ip4 -> Ipaddr.V4.Map.find_opt ip4 t.iface_of_ip4
+  | Ipaddr.V6 ip6 -> Ipaddr.V6.Map.find_opt ip6 t.iface_of_ip6
 
 let classify t ip =
   match ip with
-  | Ipaddr.V6 _ -> `External ip
+  | Ipaddr.V6 ip6 -> (
+      if ip6 = v6 t.my_ip then `Firewall
+      else
+        match lookup t (Ipaddr.V6 ip6) with
+        | Some client_link -> `Client client_link
+        | None -> `External ip)
   | Ipaddr.V4 ip4 -> (
       if ip4 = v4 t.my_ip then `Firewall
       else
-        match lookup t ip4 with
+        match lookup t (Ipaddr.V4 ip4) with
         | Some client_link -> `Client client_link
         | None -> `External ip)
 

@@ -30,7 +30,7 @@ val client_gw : t -> Ipaddr.V4.t * Ipaddr.V6.t
 val classify : t -> Ipaddr.t -> host
 val resolve : t -> host -> Ipaddr.t
 
-val lookup : t -> Ipaddr.V4.t -> client_link option
+val lookup : t -> Ipaddr.t -> client_link option
 (** [lookup t addr] is the client with IP address [addr], if connected. *)
 
 module ARP : sig
