@@ -237,6 +237,29 @@ let apply_rules t (rules : ('a, 'b) Packet.t -> Packet.action Lwt.t) ~dst
       Lwt.return_unit
 
 let ipv4_from_netvm t packet =
+  let handle_nat (packet : ('a, 'b) Packet.t) =
+    match packet.dst, packet.transport_header with
+    | `Firewall, `TCP hdr when hdr.dst_port = 80 ->
+      let target_dest = "10.137.0.42" in
+      let target_port = 8080 in
+      begin match Client_eth.lookup t.clients (Ipaddr.V4.of_string_exn target_dest) with
+        | Some new_dst -> Lwt.return @@ `NAT_to (`Client new_dst, target_port)
+        | None ->
+          Log.err (fun f -> f "Unable to find destination client %s" target_dest);
+          Lwt.return @@ `Drop "drop no dest"
+      end
+    | `Firewall, `UDP hdr when hdr.dst_port = 123 ->
+      let target_dest = "10.137.0.42" in
+      let target_port = 123 in
+      begin match Client_eth.lookup t.clients (Ipaddr.V4.of_string_exn target_dest) with
+        | Some new_dst -> Lwt.return @@ `NAT_to (`Client new_dst, target_port)
+        | None ->
+          Log.err (fun f -> f "Unable to find destination client %s" target_dest);
+          Lwt.return @@ `Drop "drop no dest"
+      end
+    | _ ->
+      Lwt.return @@ `Drop "drop by default"
+  in
   match Memory_pressure.status () with
   | `Memory_critical -> Lwt.return_unit
   | `Ok -> (
@@ -258,7 +281,7 @@ let ipv4_from_netvm t packet =
               | None -> (
                   match Packet.of_mirage_nat_packet ~src ~dst packet with
                   | None -> Lwt.return_unit
-                  | Some packet -> apply_rules t Rules.from_netvm ~dst packet)))
+                  | Some packet -> apply_rules t handle_nat ~dst packet)))
       )
 
 let ipv4_from_client resolver dns_servers t ~src packet =
