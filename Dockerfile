@@ -13,10 +13,10 @@ RUN printf "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian
 RUN printf "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260624T222306Z trixie-security main\n" >> /etc/apt/sources.list
 
 RUN apt update && apt install --no-install-recommends --no-install-suggests -y wget ca-certificates git patch unzip bzip2 make gcc g++ libc-dev xz-utils
-RUN wget -O /usr/bin/opam https://github.com/ocaml/opam/releases/download/2.5.1/opam-2.5.1-x86_64-linux && chmod 755 /usr/bin/opam
+RUN wget -O /usr/bin/opam https://github.com/ocaml/opam/releases/download/2.5.2/opam-2.5.2-x86_64-linux && chmod 755 /usr/bin/opam
 # taken from https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh
 RUN test `sha512sum /usr/bin/opam | cut -d' ' -f1` = \
-"8c8bb8286d5453106e8b3997dde791fb338716d1ce9fbe692c22de25d2f0910990031e0b260fbca8d869197793b492ff9736bd240e2695fd54b91fabdaa3593d" || exit
+"508a128cec8ddf06e763db56232818481a4eee7725fb725c08f543b4aefa0daa23042ec89a4dcb4fe8eac99c53c219196c715eec46b4f1f6769b47782f79943a" || exit
 
 ENV OPAMROOT=/tmp
 ENV OPAMCONFIRMLEVEL=unsafe-yes
@@ -24,13 +24,12 @@ ENV OPAMCONFIRMLEVEL=unsafe-yes
 # Remove this line (and the base image pin above) if you want to test with the
 # latest versions.
 # taken from https://github.com/ocaml/opam-repository
-RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#dfe0b388f8a5b17c26ef3c92151148107d59a741
-RUN opam switch create myswitch 5.4.1
+RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#e3a91f223ee49ac85fc0544b2a53702199254e3f
+RUN opam switch create myswitch 5.5.0
 RUN opam exec -- opam install -y mirage opam-monorepo ocaml-solo5
 RUN mkdir /tmp/orb-build
 ADD config.ml /tmp/orb-build/config.ml
 WORKDIR /tmp/orb-build
 CMD opam exec -- sh -exc 'mirage configure -t xen --extra-repos=\
-opam-overlays:https://github.com/dune-universe/opam-overlays.git#efd742d67b0d49b2d6f491ffbbf205ca42977a6e,\
-mirage-overlays:https://github.com/dune-universe/mirage-opam-overlays.git#eddcd1bc7e035392596b603d23dde67a88e6f6bc \
+opam-overlays:https://github.com/dune-universe/opam-overlays.git#d3aca134ac032e7522e95a18f1ef72c63f45459b \
 && make depend && make unikernel'
