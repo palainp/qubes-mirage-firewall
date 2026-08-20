@@ -1,36 +1,66 @@
 open Lwt.Infix
 open Fw_utils
-module Netback = Backend.Make (Xenstore.Make (Xen_os.Xs))
-module ClientEth = Ethernet.Make (Netback)
-module UplinkEth = Ethernet.Make (Netif)
+module Netif = Netif.Make (Xenstore.Make (Xen_os.Xs))
+module Eth = Ethernet.Make (Netif)
 
 let src = Logs.Src.create "dispatcher" ~doc:"Networking dispatch"
 
 module Log = (val Logs.src_log src : Logs.LOG)
-module Arp = Arp.Make (UplinkEth)
-module I = Static_ipv4.Make (UplinkEth) (Arp)
+
+(* Ethernet.write refuses any size above the MTU, and an aggregated frame is
+   larger than its link on purpose. For those, put the fourteen header bytes in
+   ourselves and hand the frame to the device. *)
+let write_frame eth netif ~where ~dst ~proto ?size fillfn =
+  match size with
+  | Some size when size > Eth.mtu eth -> (
+      let hdr =
+        {
+          Ethernet.Packet.source = Eth.mac eth;
+          destination = dst;
+          ethertype = proto;
+        }
+      in
+      let header_size = Ethernet.Packet.sizeof_ethernet in
+      Netif.write netif ~size:(header_size + size) (fun frame ->
+          match Ethernet.Packet.into_cstruct hdr frame with
+          | Error msg ->
+              Log.err (fun f -> f "%s: bad ethernet header: %s" where msg);
+              0
+          | Ok () -> header_size + fillfn (Cstruct.shift frame header_size))
+      >|= function
+      | Ok () -> ()
+      | Error e ->
+          Log.err (fun f ->
+              f "%s: failed to send a %d byte frame: %a" where size
+                Netif.pp_error e))
+  | _ -> (
+      Eth.write eth dst proto ?size fillfn >|= function
+      | Ok () -> ()
+      | Error e -> Log.err (fun f -> f "%s: @[%a@]" where Eth.pp_error e))
+
+module Arp = Arp.Make (Eth)
+module I = Static_ipv4.Make (Eth) (Arp)
 module U = Udp.Make (I)
 
-class client_iface eth ~domid ~gateway_ip ~client_ip client_mac : client_link =
+class client_iface eth netif ~domid ~gateway_ip ~client_ip client_mac :
+  client_link =
   let log_header = Fmt.str "dom%d:%a" domid Ipaddr.V4.pp client_ip in
   object
     val mutable rules = []
     method get_rules = rules
     method set_rules new_db = rules <- Dao.read_rules new_db client_ip
-    method my_mac = ClientEth.mac eth
+    method my_mac = Eth.mac eth
+    method max_frame_size = Netif.max_frame_size netif
+    method mtu = Eth.mtu eth
     method other_mac = client_mac
     method my_ip = gateway_ip
     method other_ip = client_ip
 
-    method writev proto fillfn =
+    method writev ?size proto fillfn =
       Lwt.catch
         (fun () ->
-          ClientEth.write eth client_mac proto fillfn >|= function
-          | Ok () -> ()
-          | Error e ->
-              Log.err (fun f ->
-                  f "error trying to send to client: @[%a@]" ClientEth.pp_error
-                    e))
+          write_frame eth netif ~where:"error trying to send to client"
+            ~dst:client_mac ~proto ?size fillfn)
         (fun ex ->
           (* Usually Netback_shutdown, because the client disconnected *)
           Log.err (fun f ->
@@ -41,18 +71,20 @@ class client_iface eth ~domid ~gateway_ip ~client_ip client_mac : client_link =
     method log_header = log_header
   end
 
-class netvm_iface eth mac ~my_ip ~other_ip : interface =
+class netvm_iface eth netif mac ~my_ip ~other_ip : interface =
   object
-    method my_mac = UplinkEth.mac eth
+    method my_mac = Eth.mac eth
+    method max_frame_size = Netif.max_frame_size netif
+    method mtu = Eth.mtu eth
     method my_ip = my_ip
     method other_ip = other_ip
 
-    method writev ethertype fillfn =
+    method writev ?size ethertype fillfn =
       Lwt.catch
         (fun () ->
           mac >>= fun dst ->
-          UplinkEth.write eth dst ethertype fillfn
-          >|= or_raise "Write to uplink" UplinkEth.pp_error)
+          write_frame eth netif ~where:"Write to uplink" ~dst ~proto:ethertype
+            ?size fillfn)
         (fun ex ->
           Log.err (fun f ->
               f "uncaught exception trying to send to uplink: @[%s@]"
@@ -62,7 +94,7 @@ class netvm_iface eth mac ~my_ip ~other_ip : interface =
 
 type uplink = {
   net : Netif.t;
-  eth : UplinkEth.t;
+  eth : Eth.t;
   arp : Arp.t;
   interface : interface;
   mutable fragments : Fragments.Cache.t;
@@ -131,11 +163,22 @@ let resolve t = function
 
 (* Transmission *)
 
-let transmit_ipv4 packet iface =
+let transmit_ipv4 packet (iface : #interface) =
   Lwt.catch
     (fun () ->
       let fragments = ref [] in
-      iface#writev `IPv4 (fun b ->
+      (* Ask for the whole packet, capped at what the link carries in one
+         frame: below the cap it goes over whole, above it the buffer is short
+         and into_cstruct fragments. Where the link carries no more than one
+         MTU there is nothing to decide, so length is not paid. *)
+      let max_payload =
+        iface#max_frame_size - Ethernet.Packet.sizeof_ethernet
+      in
+      let size =
+        if max_payload <= iface#mtu then max_payload
+        else min (Nat_packet.length packet) max_payload
+      in
+      iface#writev ~size `IPv4 (fun b ->
           match Nat_packet.into_cstruct packet b with
           | Error e ->
               Log.warn (fun f ->
@@ -149,7 +192,7 @@ let transmit_ipv4 packet iface =
       Lwt_list.iter_s
         (fun f ->
           let size = Cstruct.length f in
-          iface#writev `IPv4 (fun b ->
+          iface#writev ~size `IPv4 (fun b ->
               Cstruct.blit f 0 b 0 size;
               size))
         !fragments)
@@ -237,7 +280,7 @@ let apply_rules t (rules : ('a, 'b) Packet.t -> Packet.action Lwt.t) ~dst
       Lwt.return_unit
 
 let ipv4_from_netvm t packet =
-  match Memory_pressure.status () with
+  match Qubes.Misc.check_memory ~fraction:20 () with
   | `Memory_critical -> Lwt.return_unit
   | `Ok -> (
       let (`IPv4 (ip, _transport)) = packet in
@@ -262,7 +305,7 @@ let ipv4_from_netvm t packet =
       )
 
 let ipv4_from_client resolver dns_servers t ~src packet =
-  match Memory_pressure.status () with
+  match Qubes.Misc.check_memory ~fraction:20 () with
   | `Memory_critical -> Lwt.return_unit
   | `Ok -> (
       (* Check for existing NAT entry for this packet *)
@@ -291,7 +334,7 @@ let ipv4_from_client resolver dns_servers t ~src packet =
               Lwt.return_unit))
 
 (** Handle an ARP message from the client. *)
-let client_handle_arp ~fixed_arp ~iface request =
+let client_handle_arp ~fixed_arp ~(iface : #interface) request =
   match Arp_packet.decode request with
   | Error e ->
       Log.warn (fun f ->
@@ -378,7 +421,7 @@ let conf_vif get_ts vif backend client_eth dns_client dns_servers ~client_ip
   let listener =
     Lwt.catch
       (fun () ->
-        Netback.listen backend ~header_size:Ethernet.Packet.sizeof_ethernet
+        Netif.listen backend ~header_size:Ethernet.Packet.sizeof_ethernet
           (fun frame ->
             match Ethernet.Packet.of_cstruct frame with
             | Error err ->
@@ -391,7 +434,7 @@ let conf_vif get_ts vif backend client_eth dns_client dns_servers ~client_ip
                     client_handle_ipv4 get_ts fragment_cache ~iface ~router
                       dns_client dns_servers payload
                 | `IPv6 -> Lwt.return_unit (* TODO: oh no! *)))
-        >|= or_raise "Listen on client interface" Netback.pp_error)
+        >|= or_raise "Listen on client interface" Netif.pp_error)
       (function Lwt.Canceled -> Lwt.return_unit | e -> Lwt.fail e)
   in
   Cleanup.on_cleanup cleanup_tasks (fun () -> Lwt.cancel listener);
@@ -410,12 +453,14 @@ let add_client get_ts dns_client dns_servers ~router vif client_ip qubesDB
         client_ip);
   let { Dao.ClientVif.domid; device_id } = vif in
 
-  let* backend = Netback.make ~domid ~device_id in
-  let* eth = ClientEth.connect backend in
-  let client_mac = Netback.frontend_mac backend in
+  let* backend = Netif.make_backend ~domid ~device_id in
+  let* eth = Eth.connect backend in
+  let client_mac = Netif.frontend_mac backend in
   let client_eth = router.clients in
   let gateway_ip = Client_eth.client_gw client_eth in
-  let iface = new client_iface eth ~domid ~gateway_ip ~client_ip client_mac in
+  let iface =
+    new client_iface eth backend ~domid ~gateway_ip ~client_ip client_mac
+  in
 
   Cleanup.on_cleanup cleanup_tasks (fun () -> remove_client router iface);
   Lwt.async (fun () ->
@@ -513,7 +558,7 @@ let rec uplink_listen get_ts dns_responses router =
             Netif.listen uplink.net ~header_size:Ethernet.Packet.sizeof_ethernet
               (fun frame ->
                 (* Handle one Ethernet frame from NetVM *)
-                UplinkEth.input uplink.eth ~arpv4:(Arp.input uplink.arp)
+                Eth.input uplink.eth ~arpv4:(Arp.input uplink.arp)
                   ~ipv4:(fun ip ->
                     let cache, r =
                       Nat_packet.of_ipv4_packet uplink.fragments
@@ -556,7 +601,7 @@ let rec uplink_listen get_ts dns_responses router =
                 (* mutable fragments : Fragments.Cache.t; *)
                 (* interface : interface; *)
                 Arp.disconnect uplink.arp >>= fun () ->
-                UplinkEth.disconnect uplink.eth >>= fun () ->
+                Eth.disconnect uplink.eth >>= fun () ->
                 Netif.disconnect uplink.net >>= fun () ->
                 Lwt_condition.broadcast router.uplink_disconnected ();
                 Lwt.return_unit
@@ -575,7 +620,7 @@ let connect config =
   let my_ip = config.Dao.our_ip in
   let gateway = config.Dao.netvm_ip in
   Netif.connect "0" >>= fun net ->
-  UplinkEth.connect net >>= fun eth ->
+  Eth.connect net >>= fun eth ->
   Arp.connect eth >>= fun arp ->
   Arp.add_ip arp my_ip >>= fun () ->
   let cidr = Ipaddr.V4.Prefix.make 0 my_ip in
@@ -592,7 +637,7 @@ let connect config =
     | Ok mac -> Lwt.return mac
   in
   let interface =
-    new netvm_iface eth netvm_mac ~my_ip ~other_ip:config.Dao.netvm_ip
+    new netvm_iface eth net netvm_mac ~my_ip ~other_ip:config.Dao.netvm_ip
   in
   let fragments = Fragments.Cache.empty (256 * 1024) in
   Lwt.return { net; eth; arp; interface; fragments; ip; udp }

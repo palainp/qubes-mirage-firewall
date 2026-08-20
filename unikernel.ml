@@ -52,7 +52,6 @@ let start () =
   let start_time = Mirage_mtime.elapsed_ns () in
   (* Start qrexec agent and QubesDB agent in parallel *)
   let* qrexec = RExec.connect ~domid:0 () in
-  let agent_listener = RExec.listen qrexec Command.handler in
   let* qubesDB = DB.connect ~domid:0 () in
   let startup_time =
     let ( - ) = Int64.sub in
@@ -61,11 +60,7 @@ let start () =
   in
   Log.info (fun f ->
       f "QubesDB and qrexec agents connected in %.3f s" startup_time);
-  (* Watch for shutdown requests from Qubes *)
-  let shutdown_rq =
-    Xen_os.Lifecycle.await_shutdown_request () >>= fun (`Poweroff | `Reboot) ->
-    Lwt.return_unit
-  in
+
   (* Set up networking *)
   let nat = My_nat.create ~max_entries:(nat_table_size ()) in
 
@@ -121,6 +116,12 @@ let start () =
   (* Report memory usage to XenStore *)
   Memory_pressure.init ();
   (* Run until something fails or we get a shutdown request. *)
-  Lwt.choose [ agent_listener; net_listener; shutdown_rq ] >>= fun () ->
+  Lwt.choose
+    [
+      RExec.listen qrexec ~handler:Command.handler ();
+      net_listener;
+      Misc.shutdown;
+    ]
+  >>= fun () ->
   (* Give the console daemon time to show any final log messages. *)
   Mirage_sleep.ns (1.0 *. 1e9 |> Int64.of_float)
